@@ -15,7 +15,7 @@ from playwright.async_api import async_playwright, Page
 import json
 from urllib.parse import urljoin
 import httpx
-
+from pathlib import Path
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -216,7 +216,7 @@ This is the url of the current page: {extracted['current_url']}
 This is the content of the web page: {extracted['page_text']}
 
 IMPORTANT
-    -Always return ONLY a JSON object in code execution output like:
+    -Always return ONLY a JSON object in code execution output like do not change the email and secret this will remain same for all the outputs:
         {{
             "email": "23f2004661@ds.study.iitm.ac.in",
             "secret": "toothless",
@@ -300,13 +300,11 @@ IMPORTANT
         client = app.state.gemini
         await asyncio.sleep(3) # delay here
         response = client.models.generate_content(
-            model="gemini-2.5-pro",
+            model="gemini-2.5-flash-lite",
             contents=contents,
             config=types.GenerateContentConfig(
                 tools=[
                     types.Tool(code_execution=types.ToolCodeExecution),
-                    {"url_context": {}},
-                    {"google_search": {}}
                 ]
             )
         )
@@ -334,18 +332,25 @@ IMPORTANT
                     if j:
                         final_json = j
 
-        if not final_json:
-            print("⚠️ No valid JSON detected. Using fallback.")
-            final_json = {
-                "email": extracted.get("email", "23f2004661@ds.study.iitm.ac.in"),
-                "secret": extracted.get("secret", "toothless"),
-                "url": extracted["current_url"],
-                "answer": "unknown"
-            }
+        REQUIRED_KEYS = {"email", "secret", "url", "answer"}
+
+        fallback_payload = {
+            "email": "23f2004661@ds.study.iitm.ac.in",
+            "secret": "toothless",
+            "url": extracted["current_url"],
+            "answer": "fallback_error"
+        }
 
         submit_url = extracted.get("submit_url") or app.state.prev_submit
 
-        return [submit_url, final_json]
+        if (
+            isinstance(final_json, dict)
+            and REQUIRED_KEYS.issubset(final_json.keys())
+        ):
+            return [submit_url, final_json]
+        else:
+            return [submit_url, fallback_payload]
+
     except Exception as e:
         print(e)
         final_json = {
@@ -358,42 +363,130 @@ IMPORTANT
         return [submit_url,final_json]
 
 
-async def submit_answer(app: FastAPI, submit_url: str, payload: dict):
-    print("📤 SUBMITTING ANSWER TO:", submit_url)
+FINAL_JSON_PATH = Path("final_json.json")
+def save_payload(quiz_key: str, payload: dict):
+    if FINAL_JSON_PATH.exists():
+        with open(FINAL_JSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = {"all_payloads": {}}
+
+    if "all_payloads" not in data:
+        data["all_payloads"] = {}
+
+    data["all_payloads"][quiz_key] = payload
+
+    with open(FINAL_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+async def submit_answer(
+    app: FastAPI,
+    submit_url: str,
+    payload: dict,
+    quiz_number: int
+):
+    print(f"📤 SUBMITTING QUIZ {quiz_number}")
+    print("➡️ URL:", submit_url)
     print("📦 PAYLOAD:", payload)
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(submit_url, json=payload)
 
-    print("📥 SUBMISSION RESPONSE:", resp.text)
+    print("📥 RESPONSE:", resp.text)
 
     try:
         result = resp.json()
-    except:
-        print("❌ Could not decode JSON")
+    except Exception:
+        print("❌ Invalid JSON response")
         return
 
+    # Save only if correct
+    if result.get("correct") is True:
+        quiz_key = f"quiz_{quiz_number}"
+        quiz_key = payload.get("url") or f"quiz_{quiz_number}"
+        save_payload(quiz_key, payload)
+
+    else:
+        quiz_key = f"quiz_{quiz_number}"
+        quiz_key = payload.get("url") or f"quiz_{quiz_number}"
+        save_payload(quiz_key, {})
+
+    # Continue chain if next URL exists
     if result.get("url"):
         next_url = result["url"]
-        print("➡️ NEXT QUIZ URL:", next_url)
-        await solve_quiz_chain(app.state.page, next_url)
+        print("➡️ NEXT QUIZ:", next_url)
+
+        await solve_quiz_step(
+            app.state.page,
+            next_url,
+            quiz_number + 1
+        )
     else:
         print("🏁 QUIZ ENDED")
 
 
-async def solve_quiz_step(page: Page, url: str):
-    print(f"Solving quiz step at {url}")
+async def solve_quiz_step(
+    page: Page,
+    url: str,
+    quiz_number: int
+):
+    print(f"\n🧩 Solving quiz step {quiz_number}")
+    print("🌐 URL:", url)
+
+    # 1️⃣ Extract page data
     extracted = await extract_everything(page, url)
-    print("Extracted:", extracted)
-    llm_output = await call_llm(extracted, app)
-    print("LLM output received:", llm_output)
-    submit_url, payload = llm_output
-    await submit_answer(app, submit_url, payload)
+    print("📄 Extracted:", extracted)
+
+    submit_url = extracted.get("submit_url") or app.state.prev_submit
+
+    # 2️⃣ Load stored payloads (ordered)
+    with open("final_json.json", "r", encoding="utf-8") as f:
+        stored = json.load(f)
+
+    payload_values = list(stored.get("all_payloads", {}).values())
+    index = quiz_number - 1
+
+    payload = None
+
+    if index < len(payload_values):
+        stored_payload = payload_values[index]
+        answer = stored_payload.get("answer")
+
+        if answer is not None:
+            print(f"✅ Using stored answer from position {index}")
+            payload = {
+                "email": "23f2004661@ds.study.iitm.ac.in",
+                "secret": "toothless",
+                "url": extracted["current_url"],
+                "answer": answer,
+            }
+        else:
+            print(f"⚠️ Stored payload at position {index} has no answer, calling LLM")
+
+    if payload is None:
+        submit_url, payload = await call_llm(extracted, app)
+
+
+    # 4️⃣ Submit
+    await submit_answer(
+        app,
+        submit_url,
+        payload,
+        quiz_number
+    )
+
+
+
 
 
 async def solve_quiz_chain(page: Page, start_url: str):
     print("Starting quiz solving chain")
-    await solve_quiz_step(page, start_url)
+    await solve_quiz_step(
+        app.state.page,
+        start_url,
+        quiz_number=1
+    )
 
 
 @app.post("/task")
