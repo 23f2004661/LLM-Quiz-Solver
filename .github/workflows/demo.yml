@@ -1,0 +1,17 @@
+name: demo
+
+on: [push]
+
+jobs: 
+  this-is-for-practice:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: my-first-step
+        run: echo "Hello world"
+  test:
+    runs-on: ubuntu-latest
+    steps: 
+      - name: 23f2004661@ds.study.iitm.ac.in
+        run: echo "Hello, world!"
+ 
