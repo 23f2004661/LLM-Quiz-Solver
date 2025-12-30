@@ -1,16 +1,20 @@
-name: Uv set up and cache 
-on: push 
+name: Uv set up and cache
+
+on: push
+
 jobs:
-  build: 
+  build:
     runs-on: ubuntu-latest
-    steps: 
-      - name: cache dependencies 
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cache dependencies
         id: cache-first
         uses: actions/cache@v4
-        env: 
-          cache-name: cache-ad39371
-        with: 
-          path: ~/.uvcache
-          key: ${{ env.cache-name }}
+        with:
+          path: ~/.cache
+          key: cache-ad39371
+
       - name: prime-cache-ad39371
-        run: echo ${{ steps.cache-packages.outputs.cache-hit }}
+        run: echo "Cache hit? ${{ steps.cache-first.outputs.cache-hit }}"
+
