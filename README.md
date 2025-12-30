@@ -1,5 +1,4 @@
-Hello,
-🔁 Automated Recursive Quiz Solver
+Hello,again Automated Recursive Quiz Solver
 
 FastAPI + Playwright + Gemini 2.5 Pro
 

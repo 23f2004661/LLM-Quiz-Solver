@@ -15,7 +15,11 @@ from playwright.async_api import async_playwright, Page
 import json
 from urllib.parse import urljoin
 import httpx
+<<<<<<< HEAD
 from pathlib import Path
+=======
+
+>>>>>>> f3f6d57 (github actions caching)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -215,6 +219,7 @@ async def call_llm(extracted: dict, app: FastAPI):
 This is the url of the current page: {extracted['current_url']}
 This is the content of the web page: {extracted['page_text']}
 
+<<<<<<< HEAD
 IMPORTANT
     -Always return ONLY a JSON object in code execution output like do not change the email and secret this will remain same for all the outputs:
         {{
@@ -225,13 +230,34 @@ IMPORTANT
         }}
 """
     contents = [prompt]
+=======
+Always return ONLY a JSON object in code execution output like:
+{{
+    "email": "23f2004661@ds.study.iitm.ac.in",
+    "secret": "toothless",
+    "url": "{extracted['current_url']}",
+    "answer": 12345
+}}
+"""
+    contents = types.Content(
+		parts=[
+			types.Part(
+				text=prompt
+			),
+		]
+	)
+>>>>>>> f3f6d57 (github actions caching)
 
     async with httpx.AsyncClient() as client:
 
         for link in extracted["csv_links"]:
             try:
                 resp = await client.get(link)
+<<<<<<< HEAD
                 contents.append(types.Part.from_bytes(resp.content, "text/csv"))
+=======
+                contents.parts.append(types.Part.from_bytes(resp.content, "text/csv"))
+>>>>>>> f3f6d57 (github actions caching)
 
             except:
                 pass
@@ -239,7 +265,11 @@ IMPORTANT
         for link in extracted["pdf_links"]:
             try:
                 resp = await client.get(link)
+<<<<<<< HEAD
                 contents.append(types.Part.from_bytes(resp.content, "application/pdf"))
+=======
+                contents.parts.append(types.Part.from_bytes(resp.content, "application/pdf"))
+>>>>>>> f3f6d57 (github actions caching)
             except:
                 pass
 
@@ -254,13 +284,18 @@ IMPORTANT
         for link in extracted["audio_links"]:
             try:
                 resp = await client.get(link)
+<<<<<<< HEAD
                 contents.append(types.Part.from_bytes(resp.content, guess_audio_mime(link)))
+=======
+                contents.parts.append(types.Part.from_bytes(resp.content, guess_audio_mime(link)))
+>>>>>>> f3f6d57 (github actions caching)
             except:
                 pass
 
         for link in extracted["image_links"]:
             try:
                 resp = await client.get(link)
+<<<<<<< HEAD
                 ext = link.lower()
 
                 if ext.endswith(".png"):
@@ -285,6 +320,18 @@ IMPORTANT
             except Exception as e:
                 print("Image attach failed:", e)
 
+=======
+                mime = (
+                    "image/png" if link.endswith(".png") else
+                    "image/jpeg" if link.endswith(".jpg") or link.endswith(".jpeg") else
+                    "image/gif" if link.endswith(".gif") else
+                    "image/webp" if link.endswith(".webp") else
+                    "application/octet-stream"
+                )
+                contents.parts.append(types.Part.from_bytes(resp.content, mime))
+            except:
+                pass
+>>>>>>> f3f6d57 (github actions caching)
     def extract_json(text: str):
         if not text:
             return None
@@ -296,6 +343,7 @@ IMPORTANT
             return json.loads(match.group(0))
         except:
             return None
+<<<<<<< HEAD
     try:
         client = app.state.gemini
         await asyncio.sleep(3) # delay here
@@ -353,12 +401,55 @@ IMPORTANT
 
     except Exception as e:
         print(e)
+=======
+
+    client = app.state.gemini
+
+    await asyncio.sleep(3) # delay here
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=contents,
+        config=types.GenerateContentConfig(
+            tools=[
+				types.Tool(code_execution=types.ToolCodeExecution),
+				{"url_context": {}},
+				{"google_search": {}}
+			]
+        )
+    )
+
+    final_json = None
+
+    if response.candidates[0].content.parts:
+        for part in response.candidates[0].content.parts:
+
+            if getattr(part, "text", None):
+                j = extract_json(part.text)
+                if j:
+                    final_json = j
+
+            if getattr(part, "code_execution_result", None):
+                output = part.code_execution_result.output
+                j = extract_json(output)
+                if j:
+                    final_json = j
+
+            if getattr(part, "executable_code", None):
+                code = part.executable_code.code
+                j = extract_json(code)
+                if j:
+                    final_json = j
+
+    if not final_json:
+        print("⚠️ No valid JSON detected. Using fallback.")
+>>>>>>> f3f6d57 (github actions caching)
         final_json = {
             "email": extracted.get("email", "23f2004661@ds.study.iitm.ac.in"),
             "secret": extracted.get("secret", "toothless"),
             "url": extracted["current_url"],
             "answer": "unknown"
         }
+<<<<<<< HEAD
         submit_url = extracted.get("submit_url") or app.state.prev_submit
         return [submit_url,final_json]
 
@@ -388,11 +479,22 @@ async def submit_answer(
 ):
     print(f"📤 SUBMITTING QUIZ {quiz_number}")
     print("➡️ URL:", submit_url)
+=======
+
+    submit_url = extracted.get("submit_url") or app.state.prev_submit
+
+    return [submit_url, final_json]
+
+
+async def submit_answer(app: FastAPI, submit_url: str, payload: dict):
+    print("📤 SUBMITTING ANSWER TO:", submit_url)
+>>>>>>> f3f6d57 (github actions caching)
     print("📦 PAYLOAD:", payload)
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(submit_url, json=payload)
 
+<<<<<<< HEAD
     print("📥 RESPONSE:", resp.text)
 
     try:
@@ -422,10 +524,25 @@ async def submit_answer(
             next_url,
             quiz_number + 1
         )
+=======
+    print("📥 SUBMISSION RESPONSE:", resp.text)
+
+    try:
+        result = resp.json()
+    except:
+        print("❌ Could not decode JSON")
+        return
+
+    if result.get("url"):
+        next_url = result["url"]
+        print("➡️ NEXT QUIZ URL:", next_url)
+        await solve_quiz_chain(app.state.page, next_url)
+>>>>>>> f3f6d57 (github actions caching)
     else:
         print("🏁 QUIZ ENDED")
 
 
+<<<<<<< HEAD
 async def solve_quiz_step(
     page: Page,
     url: str,
@@ -478,15 +595,29 @@ async def solve_quiz_step(
 
 
 
+=======
+async def solve_quiz_step(page: Page, url: str):
+    print(f"Solving quiz step at {url}")
+    extracted = await extract_everything(page, url)
+    print("Extracted:", extracted)
+    llm_output = await call_llm(extracted, app)
+    print("LLM output received:", llm_output)
+    submit_url, payload = llm_output
+    await submit_answer(app, submit_url, payload)
+>>>>>>> f3f6d57 (github actions caching)
 
 
 async def solve_quiz_chain(page: Page, start_url: str):
     print("Starting quiz solving chain")
+<<<<<<< HEAD
     await solve_quiz_step(
         app.state.page,
         start_url,
         quiz_number=1
     )
+=======
+    await solve_quiz_step(page, start_url)
+>>>>>>> f3f6d57 (github actions caching)
 
 
 @app.post("/task")
