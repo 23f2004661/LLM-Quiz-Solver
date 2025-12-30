@@ -16,5 +16,6 @@ jobs:
           key: cache-ad39371
 
       - name: prime-cache-ad39371
+        id: prime-cache-ad39371
         run: echo "Cache hit? ${{ steps.cache-first.outputs.cache-hit }}"
 
